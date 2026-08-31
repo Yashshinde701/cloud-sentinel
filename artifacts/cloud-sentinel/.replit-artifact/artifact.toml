@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Cloud Sentinel"
+description = "An AI-powered cloud and server monitoring console that visualizes live infrastructure health, detects anomalies, forecasts resource capacity, and helps teams respond to incidents before they impact users."
+version = "1.0.0"
+id = "artifacts/cloud-sentinel"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25857
+
+[services.development]
+run = "pnpm --filter @workspace/cloud-sentinel run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cloud-sentinel", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cloud-sentinel/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25857"
+BASE_PATH = "/"
