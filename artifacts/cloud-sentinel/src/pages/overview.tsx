@@ -1,0 +1,87 @@
+import { ArrowDownRight, ArrowUpRight, BrainCircuit, CheckCircle2, ChevronRight, CircleAlert, Clock3, Gauge, Loader2, Network, Play, RotateCw, ShieldAlert, Sparkles, TrendingUp, Zap } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
+import { getGetMonitoringOverviewQueryKey, getListServicesQueryKey, useGetMonitoringOverview, useListServices, useTriggerTrafficSpike, type Activity as ActivityData, type Prediction, type Service } from '@workspace/api-client-react';
+
+function SkeletonBlock({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-muted ${className}`} />;
+}
+
+function QueryError({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return <div className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center"><CircleAlert className="mb-2 size-5 text-destructive" /><p className="text-sm font-semibold">{label} is unavailable</p><p className="mt-1 text-xs text-muted-foreground">The relay did not return a usable response.</p><button onClick={onRetry} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted" data-testid={`button-retry-${label.toLowerCase()}`}><RotateCw className="size-3.5" />Retry</button></div>;
+}
+
+function Sparkline({ tone = 'primary', flipped = false }: { tone?: 'primary' | 'warning' | 'danger'; flipped?: boolean }) {
+  const stroke = tone === 'warning' ? 'hsl(var(--accent))' : tone === 'danger' ? 'hsl(var(--destructive))' : 'hsl(var(--primary))';
+  return <svg viewBox="0 0 120 36" className="h-9 w-28 overflow-visible" aria-hidden="true"><path d="M0 27 L10 25 L18 28 L28 18 L38 22 L48 15 L58 18 L67 10 L77 14 L87 9 L96 12 L108 5 L120 7" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M0 27 L10 25 L18 28 L28 18 L38 22 L48 15 L58 18 L67 10 L77 14 L87 9 L96 12 L108 5 L120 7 L120 36 L0 36Z" fill={stroke} opacity=".08" /></svg>;
+}
+
+function StatusDot({ status }: { status: Service['status'] }) {
+  return <span className={`inline-block size-2 rounded-full ${status === 'healthy' ? 'bg-primary' : status === 'warning' ? 'bg-accent' : 'bg-destructive'} ${status !== 'healthy' ? 'signal-pulse' : ''}`} />;
+}
+
+function PredictionCard({ prediction }: { prediction: Prediction }) {
+  const rising = prediction.direction === 'up';
+  const stable = prediction.direction === 'stable';
+  return <div className="group rounded-xl border border-border/80 bg-card p-4 shadow-[0_1px_2px_hsl(var(--foreground)/.03)] transition-transform hover:-translate-y-0.5" data-testid={`card-prediction-${prediction.metric}`}>
+    <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted-foreground">{prediction.metric}</p><p className="mt-2 text-[26px] font-bold tracking-[-.06em]">{prediction.value}<span className="ml-1 text-sm font-medium tracking-normal text-muted-foreground">{prediction.unit}</span></p></div><span className={`grid size-8 place-items-center rounded-lg ${stable ? 'bg-muted text-muted-foreground' : rising ? 'bg-accent/15 text-accent-foreground' : 'bg-primary/10 text-primary'}`}>{stable ? <TrendingUp className="size-4" /> : rising ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}</span></div>
+    <p className="mt-3 text-xs leading-5 text-muted-foreground">{prediction.explanation}</p>
+    <div className="mt-4 flex items-center justify-between border-t border-border/70 pt-3"><span className="font-mono text-[10px] text-muted-foreground">NEXT {prediction.horizon}</span><span className="font-mono text-[10px] font-medium text-primary">{Math.round(prediction.confidence)}% CONFIDENCE</span></div>
+  </div>;
+}
+
+function ActivityRow({ item }: { item: ActivityData }) {
+  const icon = item.type === 'prediction' ? <BrainCircuit className="size-3.5" /> : item.type === 'incident' ? <ShieldAlert className="size-3.5" /> : item.type === 'deployment' ? <Zap className="size-3.5" /> : <CheckCircle2 className="size-3.5" />;
+  const color = item.type === 'incident' ? 'bg-destructive/10 text-destructive' : item.type === 'prediction' ? 'bg-accent/15 text-accent-foreground' : item.type === 'recovery' ? 'bg-primary/10 text-primary' : 'bg-[hsl(203_72%_50%/.12)] text-[hsl(203_72%_42%)]';
+  return <div className="flex gap-3 border-b border-border/70 py-3.5 last:border-b-0" data-testid={`activity-${item.id}`}><span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${color}`}>{icon}</span><div className="min-w-0 flex-1"><p className="text-xs font-semibold">{item.title}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{item.detail}</p></div><time className="shrink-0 font-mono text-[10px] text-muted-foreground">{item.time}</time></div>;
+}
+
+function TrafficSpike({ services }: { services: Service[] }) {
+  const [service, setService] = useState(services[0]?.name ?? 'checkout-api');
+  const [intensity, setIntensity] = useState(55);
+  const queryClient = useQueryClient();
+  const spike = useTriggerTrafficSpike();
+  const submit = () => spike.mutate({ data: { service, intensity } }, { onSuccess: (next) => { queryClient.setQueryData(getGetMonitoringOverviewQueryKey(), next); queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetMonitoringOverviewQueryKey() }); } });
+  return <div className="rounded-xl border border-[hsl(36_92%_58%/.35)] bg-[hsl(36_92%_58%/.09)] p-4 sm:p-5" data-testid="panel-traffic-simulation">
+    <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Zap className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold">Run traffic simulation</h3><span className="rounded-full bg-accent/20 px-2 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wider text-accent-foreground">demo mode</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">Inject a controlled load event and watch Sentinel surface the signal.</p></div></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_120px_auto]"><label className="block"><span className="mb-1.5 block font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">Target service</span><select value={service} onChange={(e) => setService(e.target.value)} className="h-9 w-full rounded-lg border border-border bg-card px-2.5 text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30" data-testid="select-spike-service">{services.length ? services.map((item) => <option key={item.id} value={item.name}>{item.name}</option>) : <option value="checkout-api">checkout-api</option>}</select></label><label className="block"><span className="mb-1.5 block font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">Intensity</span><div className="relative"><input type="number" min="1" max="100" value={intensity} onChange={(e) => setIntensity(Math.max(1, Math.min(100, Number(e.target.value))))} className="h-9 w-full rounded-lg border border-border bg-card px-2.5 font-mono text-xs outline-none focus:ring-2 focus:ring-primary/30" data-testid="input-spike-intensity" /><span className="absolute right-2.5 top-2.5 font-mono text-[10px] text-muted-foreground">%</span></div></label><button onClick={submit} disabled={spike.isPending} className="mt-auto inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-xs font-bold text-background hover:-translate-y-0.5 hover:bg-foreground/90 disabled:cursor-wait disabled:opacity-60" data-testid="button-trigger-spike">{spike.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5 fill-current" />}{spike.isPending ? 'Injecting…' : 'Trigger spike'}</button></div>
+    {spike.isError && <p className="mt-3 text-xs font-medium text-destructive" data-testid="text-spike-error">Simulation failed. Try again in a moment.</p>}
+  </div>;
+}
+
+export default function Overview() {
+  const overviewQuery = useGetMonitoringOverview({ query: { queryKey: getGetMonitoringOverviewQueryKey(), refetchInterval: 30000 } });
+  const servicesQuery = useListServices({ query: { queryKey: getListServicesQueryKey(), refetchInterval: 30000 } });
+  const overview = overviewQuery.data;
+  const services = servicesQuery.data ?? [];
+  const serviceSummary = useMemo(() => services.slice(0, 5), [services]);
+
+  if (overviewQuery.isLoading || servicesQuery.isLoading) return <div className="mx-auto max-w-[1420px]"><div className="mb-8"><SkeletonBlock className="h-3 w-28" /><SkeletonBlock className="mt-3 h-9 w-72" /></div><div className="grid gap-4 md:grid-cols-3"><SkeletonBlock className="h-32" /><SkeletonBlock className="h-32" /><SkeletonBlock className="h-32" /></div><div className="mt-5 grid gap-5 lg:grid-cols-[1.3fr_.7fr]"><SkeletonBlock className="h-80" /><SkeletonBlock className="h-80" /></div></div>;
+  if (overviewQuery.isError || !overview) return <div className="mx-auto max-w-[1420px]"><QueryError label="Monitoring overview" onRetry={() => overviewQuery.refetch()} /></div>;
+
+  const statusTone = overview.systemStatus === 'healthy' ? 'text-primary' : overview.systemStatus === 'warning' ? 'text-accent-foreground' : 'text-destructive';
+  return <div className="mx-auto max-w-[1420px]">
+    <div className="sentinel-rise flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">Thursday · 14 March 2024</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.055em] sm:text-[38px]">Good morning, Alex<span className="text-primary">.</span></h1><p className="mt-2 text-sm text-muted-foreground">Here’s the signal across your production infrastructure.</p></div><div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground"><span className="size-1.5 rounded-full bg-primary signal-pulse" />LIVE · updated {overview.updatedAt}</div></div>
+
+    <section className="mt-8 grid gap-4 md:grid-cols-3">
+      <div className="sentinel-rise rounded-xl border border-border/80 bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]" data-testid="card-system-health"><div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">System health</p><p className={`mt-2 text-2xl font-extrabold tracking-[-.04em] ${statusTone}`}>{overview.statusLabel}</p></div><span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><Gauge className="size-[18px]" /></span></div><div className="mt-5 flex items-end gap-3"><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${overview.systemStatus === 'critical' ? 'w-[42%] bg-destructive' : overview.systemStatus === 'warning' ? 'w-[78%] bg-accent' : 'w-[96%] bg-primary'}`} /></div><span className="font-mono text-[10px] text-muted-foreground">24h</span></div></div>
+      <div className="sentinel-rise sentinel-delay-1 rounded-xl border border-border/80 bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]" data-testid="card-monitored-services"><div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Monitored services</p><p className="mt-2 text-3xl font-extrabold tracking-[-.06em]">{overview.services}<span className="ml-2 text-sm font-semibold tracking-normal text-primary">online</span></p></div><span className="grid size-9 place-items-center rounded-lg bg-[hsl(203_72%_50%/.12)] text-[hsl(203_72%_42%)]"><Network className="size-[18px]" /></span></div><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 text-primary" />{serviceSummary.filter((service) => service.status !== 'healthy').length ? `${serviceSummary.filter((service) => service.status !== 'healthy').length} service${serviceSummary.filter((service) => service.status !== 'healthy').length === 1 ? '' : 's'} need attention` : 'No service degradation detected'}</div></div>
+      <div className="sentinel-rise sentinel-delay-2 rounded-xl border border-border/80 bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]" data-testid="card-prediction-accuracy"><div className="flex items-start justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Prediction accuracy</p><p className="mt-2 text-3xl font-extrabold tracking-[-.06em]">{overview.predictionAccuracy}<span className="text-xl">%</span></p></div><Sparkline /></div><div className="mt-3 flex items-center gap-2 text-xs text-primary"><ArrowUpRight className="size-3.5" />+2.4% from last week</div></div>
+    </section>
+
+    <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)]">
+      <section className="sentinel-rise sentinel-delay-1 rounded-xl border border-border/80 bg-card p-5 sm:p-6" data-testid="section-predictions"><div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><Sparkles className="size-4 text-accent-foreground" /><h2 className="text-base font-bold tracking-tight">Predictive insights</h2></div><p className="mt-1 text-xs text-muted-foreground">Signals Sentinel is watching before they become incidents.</p></div><span className="rounded-full bg-muted px-2.5 py-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">next 60 min</span></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{overview.predictions?.length ? overview.predictions.map((prediction) => <PredictionCard key={`${prediction.metric}-${prediction.horizon}`} prediction={prediction} />) : <div className="col-span-full rounded-lg border border-dashed border-border p-8 text-center"><BrainCircuit className="mx-auto size-6 text-muted-foreground" /><p className="mt-2 text-sm font-semibold">No forward signals yet</p><p className="mt-1 text-xs text-muted-foreground">Sentinel will surface a prediction when it has enough telemetry.</p></div>}</div></section>
+      <section className="sentinel-rise sentinel-delay-2 rounded-xl border border-border/80 bg-card p-5 sm:p-6" data-testid="section-activity"><div className="flex items-center justify-between"><div><h2 className="text-base font-bold tracking-tight">Activity stream</h2><p className="mt-1 text-xs text-muted-foreground">The latest changes in production.</p></div><ActivityIcon /></div><div className="mt-3">{overview.activity?.length ? overview.activity.slice(0, 5).map((item) => <ActivityRow key={item.id} item={item} />) : <div className="py-12 text-center"><Clock3 className="mx-auto size-6 text-muted-foreground" /><p className="mt-2 text-sm font-semibold">Quiet in production</p><p className="mt-1 text-xs text-muted-foreground">New events will appear here.</p></div>}</div></section>
+    </div>
+
+    <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,.72fr)]">
+      <section className="rounded-xl border border-border/80 bg-card p-5 sm:p-6" data-testid="section-services-snapshot"><div className="flex items-center justify-between"><div><h2 className="text-base font-bold tracking-tight">Service snapshot</h2><p className="mt-1 text-xs text-muted-foreground">A quick read on the workloads that matter.</p></div><Link href="/services" className="flex items-center gap-1 font-mono text-[10px] font-medium uppercase tracking-wider text-primary hover:gap-2" data-testid="link-view-services">View all <ChevronRight className="size-3.5" /></Link></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[530px] text-left"><thead><tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground"><th className="pb-2 font-mono font-medium">Service</th><th className="pb-2 font-mono font-medium">Health</th><th className="pb-2 font-mono font-medium">CPU</th><th className="pb-2 font-mono font-medium">Memory</th><th className="pb-2 text-right font-mono font-medium">Requests</th></tr></thead><tbody>{serviceSummary.map((service) => <tr key={service.id} className="border-b border-border/60 last:border-0" data-testid={`row-service-${service.id}`}><td className="py-3 text-xs font-semibold">{service.name}<span className="ml-2 font-mono text-[9px] font-normal text-muted-foreground">{service.environment}</span></td><td className="py-3"><span className="flex items-center gap-2 text-xs capitalize"><StatusDot status={service.status} />{service.status}</span></td><td className="py-3 font-mono text-xs">{service.cpu}%</td><td className="py-3 font-mono text-xs">{service.memory}%</td><td className="py-3 text-right font-mono text-xs">{service.requests.toLocaleString()}/m</td></tr>)}</tbody></table>{!services.length && <div className="py-12 text-center text-xs text-muted-foreground">No services are reporting yet.</div>}</div></section>
+      <TrafficSpike services={services} />
+    </div>
+  </div>;
+}
+
+function ActivityIcon() {
+  return <span className="grid size-7 place-items-center rounded-lg bg-muted text-muted-foreground"><Clock3 className="size-3.5" /></span>;
+}
