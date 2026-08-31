@@ -1,0 +1,51 @@
+import { AlertOctagon, ArrowUpRight, Check, ChevronDown, CircleAlert, Clock3, Filter, Loader2, RefreshCw, ShieldAlert, TimerReset } from 'lucide-react';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { getListIncidentsQueryKey, useAcknowledgeIncident, useListIncidents, type Incident, type IncidentSeverity, type IncidentStatus } from '@workspace/api-client-react';
+
+const tabs: { label: string; value: 'all' | IncidentStatus }[] = [{ label: 'All incidents', value: 'all' }, { label: 'Open', value: 'open' }, { label: 'Acknowledged', value: 'acknowledged' }, { label: 'Resolved', value: 'resolved' }];
+
+const severityConfig: Record<IncidentSeverity, { label: string; className: string; icon: typeof AlertOctagon }> = {
+  critical: { label: 'Critical', className: 'bg-destructive/12 text-destructive border-destructive/20', icon: AlertOctagon },
+  high: { label: 'High', className: 'bg-accent/18 text-accent-foreground border-accent/25', icon: ShieldAlert },
+  medium: { label: 'Medium', className: 'bg-[hsl(203_72%_50%/.12)] text-[hsl(203_72%_42%)] border-[hsl(203_72%_50%/.2)]', icon: CircleAlert },
+  low: { label: 'Low', className: 'bg-muted text-muted-foreground border-border', icon: CircleAlert },
+};
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const minutes = Math.max(1, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / 1440)}d ago`;
+}
+
+function SkeletonRows() {
+  return <div className="space-y-3">{[1, 2, 3, 4].map((row) => <div key={row} className="h-[116px] animate-pulse rounded-xl border border-border bg-muted/50" />)}</div>;
+}
+
+function IncidentCard({ incident, onAcknowledge, pending }: { incident: Incident; onAcknowledge: (id: string) => void; pending: boolean }) {
+  const config = severityConfig[incident.severity];
+  const Icon = config.icon;
+  const isResolved = incident.status === 'resolved';
+  return <article className={`group rounded-xl border bg-card p-4 transition-transform hover:-translate-y-0.5 sm:p-5 ${incident.severity === 'critical' && incident.status === 'open' ? 'border-destructive/35 shadow-[inset_3px_0_0_hsl(var(--destructive))]' : 'border-border/80'}`} data-testid={`card-incident-${incident.id}`}>
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start"><div className="flex min-w-0 flex-1 gap-3"><span className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg border ${config.className}`}><Icon className="size-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-md border px-2 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wider ${config.className}`}>{config.label}</span><span className={`flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider ${isResolved ? 'text-primary' : incident.status === 'acknowledged' ? 'text-[hsl(203_72%_42%)]' : 'text-destructive'}`}><span className={`size-1.5 rounded-full ${isResolved ? 'bg-primary' : incident.status === 'acknowledged' ? 'bg-[hsl(203_72%_50%)]' : 'bg-destructive'}`} />{incident.status}</span></div><h2 className="mt-2 text-sm font-bold tracking-tight sm:text-[15px]">{incident.title}</h2><p className="mt-1 text-xs text-muted-foreground"><span className="font-mono">{incident.service}</span><span className="mx-2 text-border">/</span>{incident.impact}</p></div></div><div className="grid grid-cols-3 gap-5 border-y border-border/70 py-3 lg:border-y-0 lg:py-0"><div><p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Probability</p><p className={`mt-1 font-mono text-sm font-medium ${incident.probability >= 80 ? 'text-destructive' : 'text-foreground'}`}>{Math.round(incident.probability)}%</p></div><div><p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Detected</p><p className="mt-1 flex items-center gap-1 font-mono text-[11px] text-foreground"><Clock3 className="size-3 text-muted-foreground" />{formatTime(incident.detectedAt)}</p></div><div><p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Impact</p><p className="mt-1 max-w-[130px] truncate text-xs font-medium">{incident.impact}</p></div></div><div className="flex items-center justify-between gap-3 lg:w-[190px] lg:justify-end">{incident.status === 'open' ? <button onClick={() => onAcknowledge(incident.id)} disabled={pending} className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3.5 text-xs font-bold text-background hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60" data-testid={`button-acknowledge-${incident.id}`}>{pending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}Acknowledge</button> : <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3.5 py-2 text-xs font-semibold text-muted-foreground"><Check className="size-3.5 text-primary" />{isResolved ? 'Resolved' : 'Acknowledged'}</span>}<button className="grid size-9 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`View ${incident.title}`} data-testid={`button-view-incident-${incident.id}`}><ArrowUpRight className="size-4" /></button></div></div><div className="mt-4 flex items-start gap-2 rounded-lg bg-muted/60 px-3 py-2.5"><TimerReset className="mt-0.5 size-3.5 shrink-0 text-primary" /><p className="text-xs leading-5 text-muted-foreground"><span className="mr-1 font-semibold text-foreground">Recommended:</span>{incident.recommendedAction}</p></div>
+  </article>;
+}
+
+export default function Incidents() {
+  const [filter, setFilter] = useState<'all' | IncidentStatus>('all');
+  const params = filter === 'all' ? undefined : { status: filter };
+  const query = useListIncidents(params, { query: { queryKey: getListIncidentsQueryKey(params), refetchInterval: 30000 } });
+  const client = useQueryClient();
+  const ack = useAcknowledgeIncident();
+  const acknowledge = (id: string) => ack.mutate({ id }, { onSuccess: () => { client.invalidateQueries({ queryKey: getListIncidentsQueryKey(params) }); client.invalidateQueries({ queryKey: getListIncidentsQueryKey() }); } });
+  const incidents = query.data ?? [];
+  return <div className="mx-auto max-w-[1420px]">
+    <div className="sentinel-rise flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">Response center</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.055em] sm:text-[38px]">Incidents<span className="text-destructive">.</span></h1><p className="mt-2 text-sm text-muted-foreground">Prioritized signals that need a human decision.</p></div><button onClick={() => query.refetch()} className="inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg border border-border bg-card px-3.5 text-xs font-semibold hover:bg-muted sm:self-auto" data-testid="button-refresh-incidents"><RefreshCw className={`size-3.5 ${query.isFetching ? 'animate-spin' : ''}`} />Refresh queue</button></div>
+    <div className="mt-8 flex flex-col gap-4 border-b border-border sm:flex-row sm:items-center sm:justify-between"><div className="thin-scrollbar flex gap-1 overflow-x-auto pb-3">{tabs.map((tab) => <button key={tab.value} onClick={() => setFilter(tab.value)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${filter === tab.value ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} data-testid={`button-filter-${tab.value}`}>{tab.label}{tab.value === 'open' && <span className={`ml-2 rounded-full px-1.5 py-0.5 font-mono text-[9px] ${filter === tab.value ? 'bg-background/15' : 'bg-destructive/10 text-destructive'}`}>3</span>}</button>)}</div><button className="mb-3 inline-flex items-center gap-2 self-start rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground sm:self-auto" data-testid="button-filter-options"><Filter className="size-3.5" />Filter options<ChevronDown className="size-3.5" /></button></div>
+    <div className="mt-5 flex items-center justify-between"><p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{query.isLoading ? 'Loading queue' : `${incidents.length} ${filter === 'all' ? 'total' : filter} incidents`}</p><p className="hidden items-center gap-1.5 font-mono text-[10px] text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-primary" />auto-refresh 30s</p></div>
+    <div className="mt-3 space-y-3">{query.isLoading ? <SkeletonRows /> : query.isError ? <div className="rounded-xl border border-destructive/20 bg-destructive/5"><div className="flex min-h-44 flex-col items-center justify-center p-6 text-center"><CircleAlert className="mb-2 size-5 text-destructive" /><p className="text-sm font-semibold">Incident queue is unavailable</p><p className="mt-1 text-xs text-muted-foreground">We couldn’t reach the response center.</p><button onClick={() => query.refetch()} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted" data-testid="button-retry-incidents"><RefreshCw className="size-3.5" />Try again</button></div></div> : incidents.length ? incidents.map((incident) => <IncidentCard key={incident.id} incident={incident} onAcknowledge={acknowledge} pending={ack.isPending && ack.variables?.id === incident.id} />) : <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center"><Check className="mx-auto size-7 text-primary" /><h2 className="mt-3 text-sm font-bold">No {filter === 'all' ? '' : filter} incidents</h2><p className="mt-1 text-xs text-muted-foreground">{filter === 'all' ? 'Your response queue is clear. Keep shipping.' : 'Nothing in this state right now.'}</p></div>}</div>
+  </div>;
+}
