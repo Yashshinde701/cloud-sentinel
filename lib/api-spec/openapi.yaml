@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: monitoring
+    description: Predictive infrastructure monitoring
+  - name: incidents
+    description: Incident response operations
+  - name: simulations
+    description: Demo simulation controls
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /monitoring/overview:
+    get:
+      operationId: getMonitoringOverview
+      tags: [monitoring]
+      summary: Get monitoring overview
+      description: Returns the current health summary, key metrics, predictions, and recent activity.
+      responses:
+        "200":
+          description: Monitoring overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoringOverview"
+  /monitoring/metrics:
+    get:
+      operationId: getMetricHistory
+      tags: [monitoring]
+      summary: Get metric history
+      description: Returns time-series metrics for the selected service and time window.
+      parameters:
+        - name: service
+          in: query
+          required: false
+          schema:
+            type: string
+            default: all
+        - name: window
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [1h, 6h, 24h]
+            default: 6h
+      responses:
+        "200":
+          description: Metric history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricHistory"
+  /services:
+    get:
+      operationId: listServices
+      tags: [monitoring]
+      summary: List monitored services
+      responses:
+        "200":
+          description: Monitored services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+  /incidents:
+    get:
+      operationId: listIncidents
+      tags: [incidents]
+      summary: List incidents
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, open, acknowledged, resolved]
+            default: all
+      responses:
+        "200":
+          description: Incidents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Incident"
+  /incidents/{id}/acknowledge:
+    post:
+      operationId: acknowledgeIncident
+      tags: [incidents]
+      summary: Acknowledge an incident
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Acknowledged incident
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          description: Incident not found
+  /simulations/spike:
+    post:
+      operationId: triggerTrafficSpike
+      tags: [simulations]
+      summary: Trigger a demo traffic spike
+      description: Increases simulated load and creates a predictive warning for demonstration purposes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulationInput"
+      responses:
+        "200":
+          description: Updated monitoring overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoringOverview"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    Service:
+      type: object
+      required: [id, name, environment, status, region, uptime, cpu, memory, requests]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        environment: { type: string }
+        status: { type: string, enum: [healthy, warning, critical] }
+        region: { type: string }
+        uptime: { type: number }
+        cpu: { type: number }
+        memory: { type: number }
+        requests: { type: number }
+    MetricPoint:
+      type: object
+      required: [time, cpu, memory, requests, latency]
+      properties:
+        time: { type: string }
+        cpu: { type: number }
+        memory: { type: number }
+        requests: { type: number }
+        latency: { type: number }
+    MetricHistory:
+      type: object
+      required: [service, window, points]
+      properties:
+        service: { type: string }
+        window: { type: string }
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/MetricPoint" }
+    Prediction:
+      type: object
+      required: [metric, value, unit, horizon, confidence, direction, explanation]
+      properties:
+        metric: { type: string }
+        value: { type: number }
+        unit: { type: string }
+        horizon: { type: string }
+        confidence: { type: number }
+        direction: { type: string, enum: [up, down, stable] }
+        explanation: { type: string }
+    Activity:
+      type: object
+      required: [id, type, title, detail, time]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [prediction, incident, deployment, recovery] }
+        title: { type: string }
+        detail: { type: string }
+        time: { type: string }
+    MonitoringOverview:
+      type: object
+      required: [systemStatus, statusLabel, services, activeIncidents, predictionAccuracy, predictions, activity, updatedAt]
+      properties:
+        systemStatus: { type: string, enum: [healthy, warning, critical] }
+        statusLabel: { type: string }
+        services: { type: number }
+        activeIncidents: { type: number }
+        predictionAccuracy: { type: number }
+        predictions:
+          type: array
+          items: { $ref: "#/components/schemas/Prediction" }
+        activity:
+          type: array
+          items: { $ref: "#/components/schemas/Activity" }
+        updatedAt: { type: string }
+    Incident:
+      type: object
+      required: [id, title, service, severity, status, detectedAt, probability, impact, recommendedAction]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        service: { type: string }
+        severity: { type: string, enum: [low, medium, high, critical] }
+        status: { type: string, enum: [open, acknowledged, resolved] }
+        detectedAt: { type: string }
+        probability: { type: number }
+        impact: { type: string }
+        recommendedAction: { type: string }
+    SimulationInput:
+      type: object
+      required: [service, intensity]
+      properties:
+        service: { type: string, minLength: 1 }
+        intensity: { type: number, minimum: 1, maximum: 100 }
+
